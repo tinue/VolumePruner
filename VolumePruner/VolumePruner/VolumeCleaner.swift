@@ -101,20 +101,27 @@ actor VolumeCleaner {
         }
     }
 
-    // Disable Spotlight indexing on the volume so mds releases .Spotlight-V100.
-    // mdutil -d does not require root for removable/non-system volumes.
+    // Disable Spotlight and erase its index so mds releases .Spotlight-V100.
+    // -d stops future indexing; -E erases the existing index store (which
+    // includes deleting .Spotlight-V100). Neither requires root on removable
+    // non-system volumes.
     private nonisolated func disableSpotlight(on path: String) {
+        runMdutil(["-d", path])   // stop indexing first so -E won't re-create
+        runMdutil(["-E", path])   // erase the index (removes .Spotlight-V100)
+    }
+
+    private nonisolated func runMdutil(_ args: [String]) {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/mdutil")
-        task.arguments = ["-d", path]
+        task.arguments = args
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice
         do {
             try task.run()
             task.waitUntilExit()
-            log.debug("mdutil -d '\(path, privacy: .public)' exited \(task.terminationStatus)")
+            log.debug("mdutil \(args.joined(separator: " "), privacy: .public) exited \(task.terminationStatus)")
         } catch {
-            log.warning("mdutil -d failed to launch: \(error.localizedDescription, privacy: .public)")
+            log.warning("mdutil failed to launch: \(error.localizedDescription, privacy: .public)")
         }
     }
 
