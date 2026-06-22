@@ -17,6 +17,7 @@ actor VolumeCleaner {
         let fm = FileManager.default
 
         log.info("Starting clean on '\(volume.name, privacy: .public)' (fs=\(volume.fsTypeName, privacy: .public) recursive=\(recursive))")
+        disableSpotlight(on: volume.id.path)
 
         if recursive {
             guard let enumerator = fm.enumerator(
@@ -97,6 +98,23 @@ actor VolumeCleaner {
         return contents.contains { url in
             let name = url.lastPathComponent
             return exactNames.contains(name) || name.hasPrefix("._")
+        }
+    }
+
+    // Disable Spotlight indexing on the volume so mds releases .Spotlight-V100.
+    // mdutil -d does not require root for removable/non-system volumes.
+    private nonisolated func disableSpotlight(on path: String) {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/mdutil")
+        task.arguments = ["-d", path]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        do {
+            try task.run()
+            task.waitUntilExit()
+            log.debug("mdutil -d '\(path, privacy: .public)' exited \(task.terminationStatus)")
+        } catch {
+            log.warning("mdutil -d failed to launch: \(error.localizedDescription, privacy: .public)")
         }
     }
 
