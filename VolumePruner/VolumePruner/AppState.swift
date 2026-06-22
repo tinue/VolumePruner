@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import OSLog
+import SQLite3
 
 private let log = Logger(subsystem: "ch.erzberger.VolumePruner", category: "AppState")
 
@@ -40,11 +41,23 @@ final class AppState {
 
     // MARK: - Public actions
 
-    // Standard idiom: TCC grants read access to the TCC database itself
-    // only when Full Disk Access is held.
+    // Check whether our app has kTCCServiceSystemPolicyAllFiles (Full Disk
+    // Access) by querying the system TCC database directly. The db file is
+    // world-readable (mode 644), so no elevated privilege is required.
     static var hasFullDiskAccess: Bool {
-        FileManager.default.isReadableFile(
-            atPath: "/Library/Application Support/com.apple.TCC/TCC.db")
+        let dbPath = "/Library/Application Support/com.apple.TCC/TCC.db"
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        let sql = "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client='ch.erzberger.VolumePruner'"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(stmt) }
+
+        return sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 2
     }
 
     func refreshStatuses() async {
