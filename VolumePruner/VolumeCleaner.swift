@@ -5,11 +5,19 @@ actor VolumeCleaner {
     static let shared = VolumeCleaner()
     nonisolated private let log = Logger(subsystem: "ch.erzberger.VolumePruner", category: "VolumeCleaner")
 
+    // Exact names of Mac metadata/junk files that are safe to remove on FAT/exFAT/NTFS volumes.
     private let exactNames: Set<String> = [
         ".DS_Store", ".Spotlight-V100", ".Trashes", ".fseventsd",
         "Thumbs.db", "desktop.ini"
     ]
 
+    // True for any filename that is a known junk artifact — either an exact match or
+    // an AppleDouble resource fork (the "._" prefix that macOS creates on non-HFS volumes).
+    private nonisolated func isJunk(_ name: String) -> Bool {
+        exactNames.contains(name) || name.hasPrefix("._")
+    }
+
+    // Removes all junk files from the volume and returns a summary of what was done.
     func clean(volume: VolumeInfo) async -> CleanResult {
         var filesRemoved = 0
         var bytesReclaimed: Int64 = 0
@@ -19,6 +27,7 @@ actor VolumeCleaner {
 
         log.info("Starting clean on '\(volume.name, privacy: .public)' (fs=\(volume.fsTypeName, privacy: .public))")
         disableSpotlight(on: volume.id.path)
+        // Brief pause so mdutil has time to release its index lock before we enumerate.
         try? await Task.sleep(for: .milliseconds(500))
 
         guard let enumerator = fm.enumerator(
@@ -30,10 +39,11 @@ actor VolumeCleaner {
             return CleanResult(filesRemoved: 0, bytesReclaimed: 0, errors: ["Cannot enumerate volume"], hadPermissionError: false)
         }
 
+        // Collect before deleting so we don't mutate the directory mid-enumeration.
         var toRemove: [URL] = []
         while let url = enumerator.nextObject() as? URL {
             let name = url.lastPathComponent
-            if exactNames.contains(name) || name.hasPrefix("._") {
+            if isJunk(name) {
                 toRemove.append(url)
                 enumerator.skipDescendants()
             }
@@ -49,7 +59,9 @@ actor VolumeCleaner {
             } catch {
                 let nsErr = error as NSError
                 log.error("Failed '\(url.lastPathComponent, privacy: .public)': \(error.localizedDescription, privacy: .public) (domain=\(nsErr.domain, privacy: .public) code=\(nsErr.code))")
-                if nsErr.code == 513 { hadPermissionError = true }
+                if nsErr.domain == NSCocoaErrorDomain && nsErr.code == NSFileWriteNoPermissionError {
+                    hadPermissionError = true
+                }
                 errors.append(url.lastPathComponent + ": " + error.localizedDescription)
             }
         }
@@ -69,9 +81,8 @@ actor VolumeCleaner {
     // cooperative pool is never stalled by a slow volume.
     nonisolated func hasJunk(volume: VolumeInfo) async -> Bool {
         let log = self.log
-        let exactNames = self.exactNames
         return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
+            DispatchQueue.global(qos: .utility).async { [self] in
                 let start = ContinuousClock.now
                 guard let enumerator = FileManager.default.enumerator(
                     at: volume.id,
@@ -86,7 +97,7 @@ actor VolumeCleaner {
                 while let url = enumerator.nextObject() as? URL {
                     scanned += 1
                     let name = url.lastPathComponent
-                    if exactNames.contains(name) || name.hasPrefix("._") {
+                    if isJunk(name) {
                         let elapsed = start.duration(to: .now)
                         log.debug("hasJunk '\(volume.name, privacy: .public)': dirty — found '\(name, privacy: .public)' after \(scanned) entries in \(elapsed, privacy: .public)")
                         continuation.resume(returning: true)
@@ -100,6 +111,8 @@ actor VolumeCleaner {
         }
     }
 
+    // Turns off Spotlight indexing on the volume before cleaning so the indexer
+    // doesn't race with our deletion of .Spotlight-V100.
     private nonisolated func disableSpotlight(on path: String) {
         runMdutil(["-i", "off", path])
     }

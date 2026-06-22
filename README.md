@@ -61,7 +61,14 @@ Modern Windows 10/11 and current Linux kernels automatically filter Mac metadata
 
 ### Installation
 
-VolumePruner is a menu-bar application. After launching it, a drive icon appears in your menu bar. The app does not appear in the Dock. To have it start automatically at login, enable **Launch at login** in Settings.
+1. Go to the [Releases](../../releases) page and download the latest `VolumePruner.dmg`.
+2. Open the DMG and drag **VolumePruner.app** into your **Applications** folder.
+3. Eject the DMG.
+4. Open VolumePruner from Applications or Spotlight.
+
+**First launch:** macOS will ask you to confirm that you want to open an app downloaded from the internet, even though VolumePruner is notarized and verified by Apple. This is normal. Click **Open** to proceed — you will only be asked once.
+
+Once running, a drive icon appears in your menu bar. The app does not appear in the Dock. To have it start automatically at login, enable **Launch at login** in Settings.
 
 ### The Menu
 
@@ -115,3 +122,11 @@ Open Settings via the button at the bottom of the menu, or with **⌘,** while t
 ## Privacy
 
 VolumePruner does not connect to the internet, does not collect data, and does not send anything anywhere. All operations are local. The only persistent storage is your preferences in `UserDefaults` and, when Full Disk Access is requested, the system's TCC database.
+
+---
+
+## Support
+
+I built VolumePruner for my own use and am sharing it in case it is useful to others. It comes with no guarantees.
+
+Bug reports and feature requests are welcome via [GitHub Issues](../../issues), but will be addressed on a best-effort basis only. There are no commitments around response times or roadmap.

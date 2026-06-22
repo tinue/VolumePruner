@@ -1,5 +1,6 @@
 import ServiceManagement
 
+// Thin wrapper around SMAppService so call sites don't need to import ServiceManagement.
 enum LoginItemManager {
     static var isEnabled: Bool {
         SMAppService.mainApp.status == .enabled

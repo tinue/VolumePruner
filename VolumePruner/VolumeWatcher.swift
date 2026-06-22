@@ -1,5 +1,7 @@
 import Foundation
 
+// Watches a mounted volume for filesystem changes using a kernel DispatchSource.
+// Debounces rapid bursts of write events into a single callback after 2 seconds of quiet.
 final class VolumeWatcher {
     private var source: DispatchSourceFileSystemObject?
     private var debounceTask: Task<Void, Never>?
@@ -11,6 +13,7 @@ final class VolumeWatcher {
     }
 
     private func start(url: URL) {
+        // O_EVTONLY opens the path for event monitoring without preventing unmount.
         let fd = open(url.path, O_EVTONLY)
         guard fd >= 0 else { return }
 
@@ -42,5 +45,5 @@ final class VolumeWatcher {
         source = nil
     }
 
-    deinit { source?.cancel() }
+    deinit { debounceTask?.cancel(); source?.cancel() }
 }

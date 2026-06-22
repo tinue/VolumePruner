@@ -4,11 +4,14 @@ import OSLog
 
 private let log = Logger(subsystem: "ch.erzberger.VolumePruner", category: "AppState")
 
+// Central state object for the app. @Observable drives SwiftUI updates;
+// @MainActor ensures all mutations happen on the main thread.
 @Observable
 @MainActor
 final class AppState {
     private(set) var mountedVolumes: [VolumeInfo] = []
     private(set) var cleanHistory: [CleanEvent] = []
+    // Keyed by volume URL — updated by background scan tasks and after each clean.
     private(set) var volumeStatuses: [URL: VolumeStatus] = [:]
     private(set) var needsFullDiskAccess = false
 
@@ -20,13 +23,14 @@ final class AppState {
         didSet { UserDefaults.standard.set(scanIntervalSeconds, forKey: "scanIntervalSeconds") }
     }
 
-    // Keyed by VolumeInfo.watchKey (UUID-based), value is the display name
-    // persisted so the user sees a meaningful label for unmounted volumes.
+    // Keyed by VolumeInfo.watchKey (UUID-based), value is the display name.
+    // Persisted so the user sees a meaningful label for unmounted volumes in Settings.
     var watchedVolumes: [String: String] = [:] {
         didSet { saveWatchedVolumes() }
     }
 
     private var watchers: [URL: VolumeWatcher] = [:]
+    // One in-flight Task per volume so we don't stack up redundant status checks.
     private var statusTasks: [URL: Task<Void, Never>] = [:]
     private var mountToken: Any?
     private var unmountToken: Any?
@@ -110,7 +114,8 @@ final class AppState {
         ))
         if ejectAfter {
             try? NSWorkspace.shared.unmountAndEjectDevice(at: volume.id)
-            refreshMountedVolumes()
+            // No need to call refreshMountedVolumes() here — didUnmountNotification
+            // fires synchronously and surgically removes the volume from our state.
         }
     }
 
@@ -157,8 +162,10 @@ final class AppState {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            // Extract the URL before entering assumeIsolated — Notification is not Sendable
+            // in Swift 6, so it cannot be captured by the @Sendable closure.
+            let url = notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL
             MainActor.assumeIsolated {
-                let url = notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL
                 log.debug("didMountNotification — url: \(url?.path ?? "nil", privacy: .public)")
                 guard let self,
                       let url,
@@ -178,10 +185,9 @@ final class AppState {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            let url = notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL
             MainActor.assumeIsolated {
-                guard let self,
-                      let url = notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL
-                else { return }
+                guard let self, let url else { return }
                 self.statusTasks[url]?.cancel()
                 self.statusTasks.removeValue(forKey: url)
                 self.watchers[url]?.stop()
@@ -206,10 +212,11 @@ final class AppState {
 
         log.debug("After filtering: \(self.mountedVolumes.count) eligible volume(s)")
 
-        for volume in mountedVolumes where watchedVolumes[volume.watchKey] != nil && watchers[volume.id] == nil {
-            startWatching(volume)
-        }
+        // Single pass: resume any persisted watch and kick off a status check.
         for volume in mountedVolumes {
+            if watchedVolumes[volume.watchKey] != nil && watchers[volume.id] == nil {
+                startWatching(volume)
+            }
             scheduleStatusCheck(for: volume)
         }
     }

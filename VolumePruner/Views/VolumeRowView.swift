@@ -1,8 +1,10 @@
 import SwiftUI
 
+// One row in the menu-bar popup for a single eligible mounted volume.
 struct VolumeRowView: View {
     let volume: VolumeInfo
     @Environment(AppState.self) private var appState
+    // Local flag prevents the buttons from stacking while a clean is in progress.
     @State private var isRunning = false
 
     var body: some View {
@@ -40,14 +42,17 @@ struct VolumeRowView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
 
+                    // Hoist to a property so the same dictionary lookup drives
+                    // the icon, color, and help text without hitting it three times.
+                    let watching = isWatching
                     Button {
                         appState.toggleWatch(volume: volume)
                     } label: {
-                        Image(systemName: appState.isWatching(volume) ? "eye.fill" : "eye")
-                            .foregroundStyle(appState.isWatching(volume) ? Color.accentColor : .secondary)
+                        Image(systemName: watching ? "eye.fill" : "eye")
+                            .foregroundStyle(watching ? Color.accentColor : .secondary)
                     }
                     .buttonStyle(.borderless)
-                    .help(appState.isWatching(volume)
+                    .help(watching
                           ? "Watching — auto-cleans when junk appears"
                           : "Watch this volume and auto-clean junk")
                 }
@@ -56,6 +61,9 @@ struct VolumeRowView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
     }
+
+    // Computed once per body evaluation; avoids the repeated dictionary lookup.
+    private var isWatching: Bool { appState.isWatching(volume) }
 
     @ViewBuilder
     private var statusDot: some View {
@@ -82,6 +90,7 @@ struct VolumeRowView: View {
         }
     }
 
+    // SD cards show a card icon; all other removable/external drives use the drive icon.
     private var volumeIcon: String {
         volume.isRemovable ? "sdcard" : "externaldrive"
     }

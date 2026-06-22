@@ -7,6 +7,7 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Full Disk Access banner — only shown when we've already hit a permission error.
             if appState.needsFullDiskAccess {
                 HStack(spacing: 8) {
                     Image(systemName: "lock.trianglebadge.exclamationmark.fill")
@@ -33,9 +34,11 @@ struct MenuBarView: View {
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ForEach(appState.mountedVolumes) { volume in
+                // enumerated() lets us draw a divider between rows without
+                // comparing URLs to find the last element.
+                ForEach(Array(appState.mountedVolumes.enumerated()), id: \.element.id) { index, volume in
                     VolumeRowView(volume: volume)
-                    if volume.id != appState.mountedVolumes.last?.id {
+                    if index < appState.mountedVolumes.count - 1 {
                         Divider().padding(.horizontal)
                     }
                 }

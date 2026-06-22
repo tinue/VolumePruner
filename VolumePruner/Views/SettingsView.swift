@@ -14,6 +14,7 @@ struct SettingsView: View {
                             try LoginItemManager.setLaunchAtLogin(newValue)
                             loginError = nil
                         } catch {
+                            // Roll back the toggle if registration fails (e.g. user denied in Settings).
                             loginError = error.localizedDescription
                             launchAtLogin = !newValue
                         }
@@ -26,6 +27,7 @@ struct SettingsView: View {
                 HStack {
                     Text("Max volume size")
                     Spacer()
+                    // Clamp to at least 1 GB so the user can't accidentally hide all volumes.
                     TextField("", value: Binding(
                         get: { appState.maxVolumeSizeGB },
                         set: { appState.maxVolumeSizeGB = max(1, $0) }
@@ -39,6 +41,7 @@ struct SettingsView: View {
                 HStack {
                     Text("Scan interval")
                     Spacer()
+                    // Clamp between 5 s (avoid hammering slow volumes) and 1 h.
                     TextField("", value: Binding(
                         get: { appState.scanIntervalSeconds },
                         set: { appState.scanIntervalSeconds = max(5, min(3600, $0)) }
@@ -59,6 +62,7 @@ struct SettingsView: View {
                     ForEach(entries, id: \.key) { key, name in
                         let mounted = appState.mountedVolumes.contains { $0.watchKey == key }
                         HStack {
+                            // Eye is accented when the volume is currently mounted and active.
                             Image(systemName: "eye.fill")
                                 .foregroundStyle(mounted ? Color.accentColor : .secondary)
                             VStack(alignment: .leading, spacing: 1) {

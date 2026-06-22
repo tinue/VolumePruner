@@ -37,6 +37,8 @@ struct VolumeInfo: Identifiable, Hashable, Sendable {
         self.isEjectable = values?.volumeIsEjectable ?? false
         self.watchKey = values?.volumeUUIDString ?? "path:\(url.path)"
 
+        // Logger captures arguments as @autoclosure, which cannot escape from a mutating
+        // struct initializer — copy values into locals first.
         let n = self.name, fs = self.fsTypeName, sz = self.totalBytes, rm = self.isRemovable
         let wk = self.watchKey
         log.debug("Found volume: name=\(n, privacy: .public) fs=\(fs, privacy: .public) size=\(sz) removable=\(rm) watchKey=\(wk, privacy: .public) path=\(url.path, privacy: .public)")
