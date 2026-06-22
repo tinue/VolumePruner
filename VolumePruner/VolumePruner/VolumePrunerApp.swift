@@ -5,7 +5,7 @@ struct VolumePrunerApp: App {
     @State private var appState = AppState()
 
     var body: some Scene {
-        MenuBarExtra("VolumePruner", systemImage: "externaldrive.badge.minus") {
+        MenuBarExtra("VolumePruner", image: "MenuBarIcon") {
             MenuBarView()
                 .environment(appState)
         }
