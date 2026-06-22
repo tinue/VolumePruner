@@ -4,9 +4,16 @@ import OSLog
 private let log = Logger(subsystem: "ch.erzberger.VolumePruner", category: "SafetyGuard")
 
 enum SafetyGuard {
-    static let allowedFilesystems: Set<String> = ["msdos", "exfat", "smbfs", "cifs", "ntfs"]
+    // Network filesystems are intentionally excluded: modern Windows and Linux
+    // filter Mac metadata files natively; server-side tooling handles legacy cases.
+    static let allowedFilesystems: Set<String> = ["msdos", "exfat", "ntfs"]
+    static let networkFilesystems: Set<String> = ["smbfs", "cifs"]
 
     static func isEligible(volume: VolumeInfo, maxGB: Int = 2000) -> Bool {
+        if networkFilesystems.contains(volume.fsTypeName) {
+            log.debug("REJECT \(volume.name, privacy: .public) — fs=\(volume.fsTypeName, privacy: .public) network share (not supported)")
+            return false
+        }
         guard allowedFilesystems.contains(volume.fsTypeName) else {
             log.debug("REJECT \(volume.name, privacy: .public) — fs=\(volume.fsTypeName, privacy: .public) not in allowlist")
             return false
