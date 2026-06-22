@@ -18,7 +18,7 @@ struct VolumeInfo: Identifiable, Hashable, Sendable {
     init?(url: URL) {
         var stats = statfs()
         guard statfs(url.path, &stats) == 0 else {
-            log.warning("statfs failed for \(url.path, privacy: .public)")
+            log.error("statfs failed for \(url.path, privacy: .public)")
             return nil
         }
 

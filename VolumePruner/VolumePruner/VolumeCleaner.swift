@@ -123,7 +123,7 @@ actor VolumeCleaner {
             task.waitUntilExit()
             log.debug("mdutil \(args.joined(separator: " "), privacy: .public) exited \(task.terminationStatus)")
         } catch {
-            log.warning("mdutil failed to launch: \(error.localizedDescription, privacy: .public)")
+            log.error("mdutil failed to launch: \(error.localizedDescription, privacy: .public)")
         }
     }
 
