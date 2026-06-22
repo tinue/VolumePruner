@@ -1,0 +1,162 @@
+import AppKit
+import Observation
+import OSLog
+
+private let log = Logger(subsystem: "ch.erzberger.VolumePruner", category: "AppState")
+
+@Observable
+@MainActor
+final class AppState {
+    private(set) var mountedVolumes: [VolumeInfo] = []
+    private(set) var cleanHistory: [CleanEvent] = []
+
+    var maxVolumeSizeGB: Int = 2000 {
+        didSet { UserDefaults.standard.set(maxVolumeSizeGB, forKey: "maxVolumeSizeGB") }
+    }
+
+    var watchedPaths: Set<URL> = [] {
+        didSet { saveWatchedPaths() }
+    }
+
+    private var watchers: [URL: VolumeWatcher] = [:]
+    private var mountToken: Any?
+    private var unmountToken: Any?
+
+    init() {
+        loadPreferences()
+        setupNotifications()
+        refreshMountedVolumes()
+    }
+
+    // MARK: - Public actions
+
+    func clean(volume: VolumeInfo, ejectAfter: Bool = false) async {
+        let result = await VolumeCleaner.shared.clean(volume: volume, recursive: volume.isRemovable)
+        addCleanEvent(CleanEvent(
+            date: Date(),
+            volumeName: volume.name,
+            filesRemoved: result.filesRemoved,
+            bytesReclaimed: result.bytesReclaimed
+        ))
+        if ejectAfter {
+            try? NSWorkspace.shared.unmountAndEjectDevice(at: volume.id)
+            refreshMountedVolumes()
+        }
+    }
+
+    func toggleWatch(volume: VolumeInfo) {
+        if watchers[volume.id] != nil {
+            stopWatching(volume)
+            watchedPaths.remove(volume.id)
+        } else {
+            watchedPaths.insert(volume.id)
+            startWatching(volume)
+        }
+    }
+
+    func isWatching(_ volume: VolumeInfo) -> Bool {
+        watchers[volume.id] != nil
+    }
+
+    func removeWatchedPath(_ url: URL) {
+        if let volume = mountedVolumes.first(where: { $0.id == url }) {
+            stopWatching(volume)
+        }
+        watchedPaths.remove(url)
+    }
+
+    // MARK: - Private
+
+    private func startWatching(_ volume: VolumeInfo) {
+        let url = volume.id
+        watchers[url] = VolumeWatcher(url: url) { [weak self] in
+            await self?.clean(volume: volume)
+        }
+    }
+
+    private func stopWatching(_ volume: VolumeInfo) {
+        watchers[volume.id]?.stop()
+        watchers.removeValue(forKey: volume.id)
+    }
+
+    private func setupNotifications() {
+        let nc = NSWorkspace.shared.notificationCenter
+
+        mountToken = nc.addObserver(
+            forName: NSWorkspace.didMountNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                let url = notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL
+                log.debug("didMountNotification — url: \(url?.path ?? "nil", privacy: .public)")
+                guard let self,
+                      let url,
+                      let info = VolumeInfo(url: url),
+                      SafetyGuard.isEligible(volume: info, maxGB: self.maxVolumeSizeGB)
+                else { return }
+                self.mountedVolumes.append(info)
+                if self.watchedPaths.contains(url) {
+                    self.startWatching(info)
+                }
+            }
+        }
+
+        unmountToken = nc.addObserver(
+            forName: NSWorkspace.didUnmountNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let url = notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL
+                else { return }
+                self.watchers[url]?.stop()
+                self.watchers.removeValue(forKey: url)
+                self.mountedVolumes.removeAll { $0.id == url }
+            }
+        }
+    }
+
+    private func refreshMountedVolumes() {
+        let urls = FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: [.volumeNameKey, .volumeIsRemovableKey, .volumeIsEjectableKey],
+            options: []
+        ) ?? []
+
+        log.debug("mountedVolumeURLs returned \(urls.count) URL(s)")
+        for url in urls { log.debug("  url: \(url.path, privacy: .public)") }
+
+        mountedVolumes = urls
+            .compactMap { VolumeInfo(url: $0) }
+            .filter { SafetyGuard.isEligible(volume: $0, maxGB: maxVolumeSizeGB) }
+
+        log.debug("After filtering: \(self.mountedVolumes.count) eligible volume(s)")
+
+        for volume in mountedVolumes where watchedPaths.contains(volume.id) && watchers[volume.id] == nil {
+            startWatching(volume)
+        }
+    }
+
+    private func addCleanEvent(_ event: CleanEvent) {
+        cleanHistory.insert(event, at: 0)
+        if cleanHistory.count > 50 { cleanHistory.removeLast() }
+    }
+
+    private func loadPreferences() {
+        if let gb = UserDefaults.standard.object(forKey: "maxVolumeSizeGB") as? Int {
+            maxVolumeSizeGB = gb
+        }
+        if let data = UserDefaults.standard.data(forKey: "watchedPaths"),
+           let paths = try? JSONDecoder().decode([String].self, from: data) {
+            watchedPaths = Set(paths.compactMap { URL(string: $0) })
+        }
+    }
+
+    private func saveWatchedPaths() {
+        let paths = watchedPaths.map(\.absoluteString)
+        if let data = try? JSONEncoder().encode(paths) {
+            UserDefaults.standard.set(data, forKey: "watchedPaths")
+        }
+    }
+}
