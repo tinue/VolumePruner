@@ -29,6 +29,7 @@ final class AppState {
         setupNotifications()
         refreshMountedVolumes()
         requestRemovablePermissionIfNeeded()
+        Task { await checkFullDiskAccess() }
     }
 
     // Trigger the one-time TCC removable-volume permission dialog at launch
@@ -37,6 +38,22 @@ final class AppState {
         guard let removable = mountedVolumes.first(where: { $0.isRemovable }) else { return }
         _ = try? FileManager.default.contentsOfDirectory(
             at: removable.id, includingPropertiesForKeys: nil, options: [])
+    }
+
+    // ~/Library/Safari is TCC-protected. If we can list it we have FDA;
+    // if we get a permission error we don't. Any other error (e.g. ENOENT)
+    // means the directory doesn't exist, which we treat as FDA present so
+    // we don't show a false warning.
+    func checkFullDiskAccess() async {
+        let safari = URL.homeDirectory.appendingPathComponent("Library/Safari")
+        do {
+            _ = try FileManager.default.contentsOfDirectory(
+                at: safari, includingPropertiesForKeys: nil, options: [])
+            needsFullDiskAccess = false
+        } catch {
+            let code = (error as NSError).code
+            needsFullDiskAccess = (code == NSFileReadNoPermissionError || code == 1) // 1 = EPERM
+        }
     }
 
     // MARK: - Public actions

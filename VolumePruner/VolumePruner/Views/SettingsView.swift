@@ -2,33 +2,11 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.openURL) private var openURL
     @State private var launchAtLogin = LoginItemManager.isEnabled
     @State private var loginError: String?
 
     var body: some View {
         Form {
-            if appState.needsFullDiskAccess {
-                Section("Permissions") {
-                    HStack(spacing: 12) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .imageScale(.large)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Full Disk Access required for .Spotlight-V100")
-                                .fontWeight(.medium)
-                            Text("macOS only allows system processes to remove Spotlight index directories. Grant Full Disk Access, then relaunch VolumePruner.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    Button("Open Privacy Settings…") {
-                        openURL(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
-                    }
-                }
-            }
-
             Section("General") {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
