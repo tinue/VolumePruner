@@ -102,12 +102,12 @@ actor VolumeCleaner {
     }
 
     // Disable Spotlight and erase its index so mds releases .Spotlight-V100.
-    // -d stops future indexing; -E erases the existing index store (which
-    // includes deleting .Spotlight-V100). Neither requires root on removable
-    // non-system volumes.
+    // -i off turns indexing off for the volume; -E erases the existing index
+    // store (which removes .Spotlight-V100). Neither requires root on
+    // removable non-system volumes.
     private nonisolated func disableSpotlight(on path: String) {
-        runMdutil(["-d", path])   // stop indexing first so -E won't re-create
-        runMdutil(["-E", path])   // erase the index (removes .Spotlight-V100)
+        runMdutil(["-i", "off", path])  // turn indexing off so -E won't re-create
+        runMdutil(["-E", path])          // erase the index (removes .Spotlight-V100)
     }
 
     private nonisolated func runMdutil(_ args: [String]) {
