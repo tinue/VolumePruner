@@ -68,18 +68,28 @@ actor VolumeCleaner {
     // match (early-exit), so it is fast when dirty and only slow when the
     // volume is genuinely clean.
     func hasJunk(volume: VolumeInfo) async -> Bool {
+        let start = ContinuousClock.now
         guard let enumerator = FileManager.default.enumerator(
             at: volume.id,
             includingPropertiesForKeys: nil,
             options: [.skipsPackageDescendants]
-        ) else { return false }
+        ) else {
+            log.error("hasJunk: enumerator failed for '\(volume.name, privacy: .public)'")
+            return false
+        }
 
+        var scanned = 0
         while let url = enumerator.nextObject() as? URL {
+            scanned += 1
             let name = url.lastPathComponent
             if exactNames.contains(name) || name.hasPrefix("._") {
+                let elapsed = start.duration(to: .now)
+                log.debug("hasJunk '\(volume.name, privacy: .public)': dirty — found '\(name, privacy: .public)' after \(scanned) entries in \(elapsed, privacy: .public)")
                 return true
             }
         }
+        let elapsed = start.duration(to: .now)
+        log.debug("hasJunk '\(volume.name, privacy: .public)': clean — scanned \(scanned) entries in \(elapsed, privacy: .public)")
         return false
     }
 

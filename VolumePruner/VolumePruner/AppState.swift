@@ -61,9 +61,11 @@ final class AppState {
     // MARK: - Public actions
 
     func refreshStatuses() async {
+        log.debug("refreshStatuses: checking \(self.mountedVolumes.count) volume(s)")
         for volume in mountedVolumes {
             let dirty = await VolumeCleaner.shared.hasJunk(volume: volume)
             volumeStatuses[volume.id] = dirty ? .dirty : .clean
+            log.debug("refreshStatuses: '\(volume.name, privacy: .public)' → \(dirty ? "dirty" : "clean", privacy: .public)")
         }
     }
 
@@ -76,6 +78,7 @@ final class AppState {
         if result.hadPermissionError {
             needsFullDiskAccess = true
         }
+        volumeStatuses[volume.id] = result.errors.isEmpty ? .clean : .dirty
         addCleanEvent(CleanEvent(
             date: Date(),
             volumeName: volume.name,
