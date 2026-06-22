@@ -18,8 +18,6 @@ actor VolumeCleaner {
 
         log.info("Starting clean on '\(volume.name, privacy: .public)' (fs=\(volume.fsTypeName, privacy: .public) recursive=\(recursive))")
         disableSpotlight(on: volume.id.path)
-        // mds processes -i off asynchronously; give it time to finish any
-        // active writes before we attempt to remove .Spotlight-V100.
         try? await Task.sleep(for: .milliseconds(500))
 
         if recursive {
@@ -43,14 +41,11 @@ actor VolumeCleaner {
 
             for url in toRemove {
                 let size = fileSize(at: url)
-                do {
-                    try fm.removeItem(at: url)
-                    log.debug("Removed \(url.lastPathComponent, privacy: .public)")
+                if let err = removeItem(at: url) {
+                    errors.append(url.lastPathComponent + ": " + err.localizedDescription)
+                } else {
                     filesRemoved += 1
                     bytesReclaimed += size
-                } catch {
-                    logDeleteFailure(url: url, error: error)
-                    errors.append(url.lastPathComponent + ": " + error.localizedDescription)
                 }
             }
         } else {
@@ -70,14 +65,11 @@ actor VolumeCleaner {
                 guard exactNames.contains(name) || name.hasPrefix("._") else { continue }
 
                 let size = fileSize(at: url)
-                do {
-                    try fm.removeItem(at: url)
-                    log.debug("Removed \(url.lastPathComponent, privacy: .public)")
+                if let err = removeItem(at: url) {
+                    errors.append(url.lastPathComponent + ": " + err.localizedDescription)
+                } else {
                     filesRemoved += 1
                     bytesReclaimed += size
-                } catch {
-                    logDeleteFailure(url: url, error: error)
-                    errors.append(url.lastPathComponent + ": " + error.localizedDescription)
                 }
             }
         }
@@ -104,9 +96,47 @@ actor VolumeCleaner {
         }
     }
 
-    // Tell Spotlight to stop indexing this volume. mds processes this
-    // asynchronously, so the caller must wait briefly before attempting
-    // to remove .Spotlight-V100.
+    // Returns nil on success, the error on failure.
+    // Tries FileManager first; falls back to /bin/rm if code 513 (permission
+    // denied), so we can distinguish Foundation-level vs kernel-level blocks.
+    private nonisolated func removeItem(at url: URL) -> Error? {
+        do {
+            try FileManager.default.removeItem(at: url)
+            log.debug("Removed \(url.lastPathComponent, privacy: .public) via FileManager")
+            return nil
+        } catch let err as CocoaError where err.code.rawValue == 513 {
+            log.warning("FileManager denied '\(url.lastPathComponent, privacy: .public)' (code 513) — trying /bin/rm fallback")
+            if removeViaRm(url.path) {
+                log.debug("Removed \(url.lastPathComponent, privacy: .public) via /bin/rm")
+                return nil
+            }
+            let nsErr = err as NSError
+            log.error("Both paths failed for '\(url.lastPathComponent, privacy: .public)': \(err.localizedDescription, privacy: .public) (domain=\(nsErr.domain, privacy: .public) code=\(nsErr.code))")
+            return err
+        } catch {
+            let nsErr = error as NSError
+            log.error("Failed to delete '\(url.lastPathComponent, privacy: .public)': \(error.localizedDescription, privacy: .public) (domain=\(nsErr.domain, privacy: .public) code=\(nsErr.code))")
+            return error
+        }
+    }
+
+    private nonisolated func removeViaRm(_ path: String) -> Bool {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/rm")
+        task.arguments = ["-rf", path]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        do {
+            try task.run()
+            task.waitUntilExit()
+            log.debug("/bin/rm -rf exited \(task.terminationStatus) for '\(path, privacy: .public)'")
+            return task.terminationStatus == 0
+        } catch {
+            log.error("/bin/rm failed to launch: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
     private nonisolated func disableSpotlight(on path: String) {
         runMdutil(["-i", "off", path])
     }
@@ -124,13 +154,6 @@ actor VolumeCleaner {
         } catch {
             log.warning("mdutil failed to launch: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    private nonisolated func logDeleteFailure(url: URL, error: any Error) {
-        let posix = (error as? CocoaError)?.code.rawValue
-            ?? (error as NSError).code
-        let domain = (error as NSError).domain
-        log.error("Failed to delete '\(url.lastPathComponent, privacy: .public)' — \(error.localizedDescription, privacy: .public) (domain=\(domain, privacy: .public) code=\(posix))")
     }
 
     private nonisolated func fileSize(at url: URL) -> Int64 {
