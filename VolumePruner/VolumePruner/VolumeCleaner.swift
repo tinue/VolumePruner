@@ -14,6 +14,7 @@ actor VolumeCleaner {
         var filesRemoved = 0
         var bytesReclaimed: Int64 = 0
         var errors: [String] = []
+        var hadPermissionError = false
         let fm = FileManager.default
 
         log.info("Starting clean on '\(volume.name, privacy: .public)' (fs=\(volume.fsTypeName, privacy: .public) recursive=\(recursive))")
@@ -27,7 +28,7 @@ actor VolumeCleaner {
                 options: [.skipsPackageDescendants]
             ) else {
                 log.error("Cannot enumerate '\(volume.name, privacy: .public)'")
-                return CleanResult(filesRemoved: 0, bytesReclaimed: 0, errors: ["Cannot enumerate volume"])
+                return CleanResult(filesRemoved: 0, bytesReclaimed: 0, errors: ["Cannot enumerate volume"], hadPermissionError: false)
             }
 
             var toRemove: [URL] = []
@@ -49,6 +50,7 @@ actor VolumeCleaner {
                 } catch {
                     let nsErr = error as NSError
                     log.error("Failed '\(url.lastPathComponent, privacy: .public)': \(error.localizedDescription, privacy: .public) (domain=\(nsErr.domain, privacy: .public) code=\(nsErr.code))")
+                    if nsErr.code == 513 { hadPermissionError = true }
                     errors.append(url.lastPathComponent + ": " + error.localizedDescription)
                 }
             }
@@ -61,7 +63,7 @@ actor VolumeCleaner {
                     options: [])
             } catch {
                 log.error("Cannot list root of '\(volume.name, privacy: .public)': \(error.localizedDescription, privacy: .public)")
-                return CleanResult(filesRemoved: 0, bytesReclaimed: 0, errors: [error.localizedDescription])
+                return CleanResult(filesRemoved: 0, bytesReclaimed: 0, errors: [error.localizedDescription], hadPermissionError: false)
             }
 
             for url in contents {
@@ -77,6 +79,7 @@ actor VolumeCleaner {
                 } catch {
                     let nsErr = error as NSError
                     log.error("Failed '\(url.lastPathComponent, privacy: .public)': \(error.localizedDescription, privacy: .public) (domain=\(nsErr.domain, privacy: .public) code=\(nsErr.code))")
+                    if nsErr.code == 513 { hadPermissionError = true }
                     errors.append(url.lastPathComponent + ": " + error.localizedDescription)
                 }
             }
@@ -88,7 +91,8 @@ actor VolumeCleaner {
             log.warning("Clean finished with \(errors.count) failure(s): \(filesRemoved) removed, \(errors.joined(separator: "; "), privacy: .public)")
         }
 
-        return CleanResult(filesRemoved: filesRemoved, bytesReclaimed: bytesReclaimed, errors: errors)
+        return CleanResult(filesRemoved: filesRemoved, bytesReclaimed: bytesReclaimed,
+                           errors: errors, hadPermissionError: hadPermissionError)
     }
 
     func hasJunk(volume: VolumeInfo) async -> Bool {

@@ -8,6 +8,7 @@ struct CleanResult: Sendable {
     let filesRemoved: Int
     let bytesReclaimed: Int64
     let errors: [String]
+    let hadPermissionError: Bool
 
     var formattedBytes: String {
         ByteCountFormatter.string(fromByteCount: bytesReclaimed, countStyle: .file)

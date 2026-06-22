@@ -1,7 +1,6 @@
 import AppKit
 import Observation
 import OSLog
-import SQLite3
 
 private let log = Logger(subsystem: "ch.erzberger.VolumePruner", category: "AppState")
 
@@ -11,6 +10,7 @@ final class AppState {
     private(set) var mountedVolumes: [VolumeInfo] = []
     private(set) var cleanHistory: [CleanEvent] = []
     private(set) var volumeStatuses: [URL: VolumeStatus] = [:]
+    private(set) var needsFullDiskAccess = false
 
     var maxVolumeSizeGB: Int = 2000 {
         didSet { UserDefaults.standard.set(maxVolumeSizeGB, forKey: "maxVolumeSizeGB") }
@@ -41,25 +41,6 @@ final class AppState {
 
     // MARK: - Public actions
 
-    // Check whether our app has kTCCServiceSystemPolicyAllFiles (Full Disk
-    // Access) by querying the system TCC database directly. The db file is
-    // world-readable (mode 644), so no elevated privilege is required.
-    static var hasFullDiskAccess: Bool {
-        let dbPath = "/Library/Application Support/com.apple.TCC/TCC.db"
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            return false
-        }
-        defer { sqlite3_close(db) }
-
-        var stmt: OpaquePointer?
-        let sql = "SELECT auth_value FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' AND client='ch.erzberger.VolumePruner'"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
-        defer { sqlite3_finalize(stmt) }
-
-        return sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 2
-    }
-
     func refreshStatuses() async {
         for volume in mountedVolumes {
             let dirty = await VolumeCleaner.shared.hasJunk(volume: volume)
@@ -72,6 +53,9 @@ final class AppState {
         let result = await VolumeCleaner.shared.clean(volume: volume, recursive: volume.isRemovable)
         if !result.errors.isEmpty {
             log.error("Clean of '\(volume.name, privacy: .public)' had \(result.errors.count) error(s): \(result.errors.joined(separator: "; "), privacy: .public)")
+        }
+        if result.hadPermissionError {
+            needsFullDiskAccess = true
         }
         addCleanEvent(CleanEvent(
             date: Date(),
