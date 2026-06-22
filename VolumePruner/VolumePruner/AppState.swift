@@ -69,7 +69,7 @@ final class AppState {
 
     func clean(volume: VolumeInfo, ejectAfter: Bool = false) async {
         volumeStatuses[volume.id] = .unknown
-        let result = await VolumeCleaner.shared.clean(volume: volume, recursive: volume.isRemovable)
+        let result = await VolumeCleaner.shared.clean(volume: volume)
         if !result.errors.isEmpty {
             log.error("Clean of '\(volume.name, privacy: .public)' had \(result.errors.count) error(s): \(result.errors.joined(separator: "; "), privacy: .public)")
         }

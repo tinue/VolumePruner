@@ -10,78 +10,47 @@ actor VolumeCleaner {
         "Thumbs.db", "desktop.ini"
     ]
 
-    func clean(volume: VolumeInfo, recursive: Bool) async -> CleanResult {
+    func clean(volume: VolumeInfo) async -> CleanResult {
         var filesRemoved = 0
         var bytesReclaimed: Int64 = 0
         var errors: [String] = []
         var hadPermissionError = false
         let fm = FileManager.default
 
-        log.info("Starting clean on '\(volume.name, privacy: .public)' (fs=\(volume.fsTypeName, privacy: .public) recursive=\(recursive))")
+        log.info("Starting clean on '\(volume.name, privacy: .public)' (fs=\(volume.fsTypeName, privacy: .public))")
         disableSpotlight(on: volume.id.path)
         try? await Task.sleep(for: .milliseconds(500))
 
-        if recursive {
-            guard let enumerator = fm.enumerator(
-                at: volume.id,
-                includingPropertiesForKeys: [URLResourceKey.fileSizeKey, URLResourceKey.isDirectoryKey],
-                options: [.skipsPackageDescendants]
-            ) else {
-                log.error("Cannot enumerate '\(volume.name, privacy: .public)'")
-                return CleanResult(filesRemoved: 0, bytesReclaimed: 0, errors: ["Cannot enumerate volume"], hadPermissionError: false)
-            }
+        guard let enumerator = fm.enumerator(
+            at: volume.id,
+            includingPropertiesForKeys: [URLResourceKey.fileSizeKey],
+            options: [.skipsPackageDescendants]
+        ) else {
+            log.error("Cannot enumerate '\(volume.name, privacy: .public)'")
+            return CleanResult(filesRemoved: 0, bytesReclaimed: 0, errors: ["Cannot enumerate volume"], hadPermissionError: false)
+        }
 
-            var toRemove: [URL] = []
-            while let url = enumerator.nextObject() as? URL {
-                let name = url.lastPathComponent
-                if exactNames.contains(name) || name.hasPrefix("._") {
-                    toRemove.append(url)
-                    enumerator.skipDescendants()
-                }
+        var toRemove: [URL] = []
+        while let url = enumerator.nextObject() as? URL {
+            let name = url.lastPathComponent
+            if exactNames.contains(name) || name.hasPrefix("._") {
+                toRemove.append(url)
+                enumerator.skipDescendants()
             }
+        }
 
-            for url in toRemove {
-                let size = fileSize(at: url)
-                do {
-                    try fm.removeItem(at: url)
-                    log.debug("Removed \(url.lastPathComponent, privacy: .public)")
-                    filesRemoved += 1
-                    bytesReclaimed += size
-                } catch {
-                    let nsErr = error as NSError
-                    log.error("Failed '\(url.lastPathComponent, privacy: .public)': \(error.localizedDescription, privacy: .public) (domain=\(nsErr.domain, privacy: .public) code=\(nsErr.code))")
-                    if nsErr.code == 513 { hadPermissionError = true }
-                    errors.append(url.lastPathComponent + ": " + error.localizedDescription)
-                }
-            }
-        } else {
-            let contents: [URL]
+        for url in toRemove {
+            let size = fileSize(at: url)
             do {
-                contents = try fm.contentsOfDirectory(
-                    at: volume.id,
-                    includingPropertiesForKeys: [URLResourceKey.fileSizeKey],
-                    options: [])
+                try fm.removeItem(at: url)
+                log.debug("Removed \(url.lastPathComponent, privacy: .public)")
+                filesRemoved += 1
+                bytesReclaimed += size
             } catch {
-                log.error("Cannot list root of '\(volume.name, privacy: .public)': \(error.localizedDescription, privacy: .public)")
-                return CleanResult(filesRemoved: 0, bytesReclaimed: 0, errors: [error.localizedDescription], hadPermissionError: false)
-            }
-
-            for url in contents {
-                let name = url.lastPathComponent
-                guard exactNames.contains(name) || name.hasPrefix("._") else { continue }
-
-                let size = fileSize(at: url)
-                do {
-                    try fm.removeItem(at: url)
-                    log.debug("Removed \(url.lastPathComponent, privacy: .public)")
-                    filesRemoved += 1
-                    bytesReclaimed += size
-                } catch {
-                    let nsErr = error as NSError
-                    log.error("Failed '\(url.lastPathComponent, privacy: .public)': \(error.localizedDescription, privacy: .public) (domain=\(nsErr.domain, privacy: .public) code=\(nsErr.code))")
-                    if nsErr.code == 513 { hadPermissionError = true }
-                    errors.append(url.lastPathComponent + ": " + error.localizedDescription)
-                }
+                let nsErr = error as NSError
+                log.error("Failed '\(url.lastPathComponent, privacy: .public)': \(error.localizedDescription, privacy: .public) (domain=\(nsErr.domain, privacy: .public) code=\(nsErr.code))")
+                if nsErr.code == 513 { hadPermissionError = true }
+                errors.append(url.lastPathComponent + ": " + error.localizedDescription)
             }
         }
 
@@ -95,17 +64,23 @@ actor VolumeCleaner {
                            errors: errors, hadPermissionError: hadPermissionError)
     }
 
+    // Recurse the full volume looking for any junk file. Stops at the first
+    // match (early-exit), so it is fast when dirty and only slow when the
+    // volume is genuinely clean.
     func hasJunk(volume: VolumeInfo) async -> Bool {
-        let fm = FileManager.default
-        let contents = (try? fm.contentsOfDirectory(
+        guard let enumerator = FileManager.default.enumerator(
             at: volume.id,
             includingPropertiesForKeys: nil,
-            options: []
-        )) ?? []
-        return contents.contains { url in
+            options: [.skipsPackageDescendants]
+        ) else { return false }
+
+        while let url = enumerator.nextObject() as? URL {
             let name = url.lastPathComponent
-            return exactNames.contains(name) || name.hasPrefix("._")
+            if exactNames.contains(name) || name.hasPrefix("._") {
+                return true
+            }
         }
+        return false
     }
 
     private nonisolated func disableSpotlight(on path: String) {
