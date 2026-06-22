@@ -40,6 +40,13 @@ final class AppState {
 
     // MARK: - Public actions
 
+    // Standard idiom: TCC grants read access to the TCC database itself
+    // only when Full Disk Access is held.
+    static var hasFullDiskAccess: Bool {
+        FileManager.default.isReadableFile(
+            atPath: "/Library/Application Support/com.apple.TCC/TCC.db")
+    }
+
     func refreshStatuses() async {
         for volume in mountedVolumes {
             let dirty = await VolumeCleaner.shared.hasJunk(volume: volume)
