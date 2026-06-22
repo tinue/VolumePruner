@@ -23,6 +23,7 @@ final class AppState {
     }
 
     private var watchers: [URL: VolumeWatcher] = [:]
+    private var statusTasks: [URL: Task<Void, Never>] = [:]
     private var mountToken: Any?
     private var unmountToken: Any?
 
@@ -60,12 +61,22 @@ final class AppState {
 
     // MARK: - Public actions
 
-    func refreshStatuses() async {
-        log.debug("refreshStatuses: checking \(self.mountedVolumes.count) volume(s)")
+    // Schedules a status check for every mounted volume that doesn't already
+    // have one running. Returns immediately — each check runs independently.
+    func refreshStatuses() {
+        log.debug("refreshStatuses: scheduling checks for \(self.mountedVolumes.count) volume(s)")
         for volume in mountedVolumes {
+            scheduleStatusCheck(for: volume)
+        }
+    }
+
+    private func scheduleStatusCheck(for volume: VolumeInfo) {
+        guard statusTasks[volume.id] == nil else { return }
+        log.debug("scheduleStatusCheck: starting for '\(volume.name, privacy: .public)'")
+        statusTasks[volume.id] = Task {
             let dirty = await VolumeCleaner.shared.hasJunk(volume: volume)
             volumeStatuses[volume.id] = dirty ? .dirty : .clean
-            log.debug("refreshStatuses: '\(volume.name, privacy: .public)' → \(dirty ? "dirty" : "clean", privacy: .public)")
+            statusTasks.removeValue(forKey: volume.id)
         }
     }
 
@@ -143,6 +154,7 @@ final class AppState {
                       SafetyGuard.isEligible(volume: info, maxGB: self.maxVolumeSizeGB)
                 else { return }
                 self.mountedVolumes.append(info)
+                self.scheduleStatusCheck(for: info)
                 if self.watchedVolumes[info.watchKey] != nil {
                     self.startWatching(info)
                 }
@@ -158,6 +170,8 @@ final class AppState {
                 guard let self,
                       let url = notification.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL
                 else { return }
+                self.statusTasks[url]?.cancel()
+                self.statusTasks.removeValue(forKey: url)
                 self.watchers[url]?.stop()
                 self.watchers.removeValue(forKey: url)
                 self.mountedVolumes.removeAll { $0.id == url }
@@ -182,6 +196,9 @@ final class AppState {
 
         for volume in mountedVolumes where watchedVolumes[volume.watchKey] != nil && watchers[volume.id] == nil {
             startWatching(volume)
+        }
+        for volume in mountedVolumes {
+            scheduleStatusCheck(for: volume)
         }
     }
 

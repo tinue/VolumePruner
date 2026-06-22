@@ -91,7 +91,7 @@ struct VolumeRowView: View {
         await appState.clean(volume: volume, ejectAfter: eject)
         isRunning = false
         if !eject {
-            await appState.refreshStatuses()
+            appState.refreshStatuses()
         }
     }
 }

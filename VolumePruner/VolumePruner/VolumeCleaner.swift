@@ -64,33 +64,40 @@ actor VolumeCleaner {
                            errors: errors, hadPermissionError: hadPermissionError)
     }
 
-    // Recurse the full volume looking for any junk file. Stops at the first
-    // match (early-exit), so it is fast when dirty and only slow when the
-    // volume is genuinely clean.
-    func hasJunk(volume: VolumeInfo) async -> Bool {
-        let start = ContinuousClock.now
-        guard let enumerator = FileManager.default.enumerator(
-            at: volume.id,
-            includingPropertiesForKeys: nil,
-            options: [.skipsPackageDescendants]
-        ) else {
-            log.error("hasJunk: enumerator failed for '\(volume.name, privacy: .public)'")
-            return false
-        }
-
-        var scanned = 0
-        while let url = enumerator.nextObject() as? URL {
-            scanned += 1
-            let name = url.lastPathComponent
-            if exactNames.contains(name) || name.hasPrefix("._") {
+    // nonisolated so concurrent calls for different volumes don't serialize
+    // through the actor. Blocking I/O runs on a DispatchQueue thread so the
+    // cooperative pool is never stalled by a slow or unresponsive CIFS share.
+    nonisolated func hasJunk(volume: VolumeInfo) async -> Bool {
+        let log = self.log
+        let exactNames = self.exactNames
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let start = ContinuousClock.now
+                guard let enumerator = FileManager.default.enumerator(
+                    at: volume.id,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsPackageDescendants]
+                ) else {
+                    log.error("hasJunk: enumerator failed for '\(volume.name, privacy: .public)'")
+                    continuation.resume(returning: false)
+                    return
+                }
+                var scanned = 0
+                while let url = enumerator.nextObject() as? URL {
+                    scanned += 1
+                    let name = url.lastPathComponent
+                    if exactNames.contains(name) || name.hasPrefix("._") {
+                        let elapsed = start.duration(to: .now)
+                        log.debug("hasJunk '\(volume.name, privacy: .public)': dirty — found '\(name, privacy: .public)' after \(scanned) entries in \(elapsed, privacy: .public)")
+                        continuation.resume(returning: true)
+                        return
+                    }
+                }
                 let elapsed = start.duration(to: .now)
-                log.debug("hasJunk '\(volume.name, privacy: .public)': dirty — found '\(name, privacy: .public)' after \(scanned) entries in \(elapsed, privacy: .public)")
-                return true
+                log.debug("hasJunk '\(volume.name, privacy: .public)': clean — scanned \(scanned) entries in \(elapsed, privacy: .public)")
+                continuation.resume(returning: false)
             }
         }
-        let elapsed = start.duration(to: .now)
-        log.debug("hasJunk '\(volume.name, privacy: .public)': clean — scanned \(scanned) entries in \(elapsed, privacy: .public)")
-        return false
     }
 
     private nonisolated func disableSpotlight(on path: String) {
