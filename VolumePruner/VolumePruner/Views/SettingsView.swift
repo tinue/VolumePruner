@@ -35,6 +35,19 @@ struct SettingsView: View {
                     Text("GB")
                         .foregroundStyle(.secondary)
                 }
+
+                HStack {
+                    Text("Scan interval")
+                    Spacer()
+                    TextField("", value: Binding(
+                        get: { appState.scanIntervalSeconds },
+                        set: { appState.scanIntervalSeconds = max(5, min(3600, $0)) }
+                    ), format: .number)
+                    .frame(width: 72)
+                    .multilineTextAlignment(.trailing)
+                    Text("s")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Watched Volumes") {

@@ -54,14 +54,5 @@ struct MenuBarView: View {
             .padding(.vertical, 8)
         }
         .frame(width: 320)
-        .task {
-            // Checks were already started at mount/launch time; this re-schedules
-            // any that completed since and weren't re-triggered.
-            appState.refreshStatuses()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                appState.refreshStatuses()
-            }
-        }
     }
 }

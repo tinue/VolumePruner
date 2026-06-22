@@ -16,6 +16,10 @@ final class AppState {
         didSet { UserDefaults.standard.set(maxVolumeSizeGB, forKey: "maxVolumeSizeGB") }
     }
 
+    var scanIntervalSeconds: Int = 10 {
+        didSet { UserDefaults.standard.set(scanIntervalSeconds, forKey: "scanIntervalSeconds") }
+    }
+
     // Keyed by VolumeInfo.watchKey (UUID-based), value is the display name
     // persisted so the user sees a meaningful label for unmounted volumes.
     var watchedVolumes: [String: String] = [:] {
@@ -33,6 +37,14 @@ final class AppState {
         refreshMountedVolumes()
         requestRemovablePermissionIfNeeded()
         Task { await checkFullDiskAccess() }
+        Task { await runPeriodicScans() }
+    }
+
+    private func runPeriodicScans() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(scanIntervalSeconds))
+            refreshStatuses()
+        }
     }
 
     // Trigger the one-time TCC removable-volume permission dialog at launch
@@ -210,6 +222,9 @@ final class AppState {
     private func loadPreferences() {
         if let gb = UserDefaults.standard.object(forKey: "maxVolumeSizeGB") as? Int {
             maxVolumeSizeGB = gb
+        }
+        if let secs = UserDefaults.standard.object(forKey: "scanIntervalSeconds") as? Int {
+            scanIntervalSeconds = secs
         }
         if let data = UserDefaults.standard.data(forKey: "watchedVolumes"),
            let dict = try? JSONDecoder().decode([String: String].self, from: data) {
