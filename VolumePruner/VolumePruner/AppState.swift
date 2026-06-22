@@ -27,6 +27,15 @@ final class AppState {
         loadPreferences()
         setupNotifications()
         refreshMountedVolumes()
+        requestRemovablePermissionIfNeeded()
+    }
+
+    // Trigger the one-time TCC removable-volume permission dialog at launch
+    // rather than on the first menu open, so the user understands the context.
+    private func requestRemovablePermissionIfNeeded() {
+        guard let removable = mountedVolumes.first(where: { $0.isRemovable }) else { return }
+        _ = try? FileManager.default.contentsOfDirectory(
+            at: removable.id, includingPropertiesForKeys: nil, options: [])
     }
 
     // MARK: - Public actions

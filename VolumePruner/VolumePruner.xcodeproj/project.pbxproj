@@ -404,6 +404,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Martin Erzberger";
+				INFOPLIST_KEY_NSRemovableVolumesUsageDescription = "VolumePruner removes Finder junk files (.DS_Store, ._* etc.) from removable volumes such as USB drives and SD cards.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -435,6 +436,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Martin Erzberger";
+				INFOPLIST_KEY_NSRemovableVolumesUsageDescription = "VolumePruner removes Finder junk files (.DS_Store, ._* etc.) from removable volumes such as USB drives and SD cards.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
