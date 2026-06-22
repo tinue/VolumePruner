@@ -9,6 +9,7 @@ private let log = Logger(subsystem: "ch.erzberger.VolumePruner", category: "AppS
 final class AppState {
     private(set) var mountedVolumes: [VolumeInfo] = []
     private(set) var cleanHistory: [CleanEvent] = []
+    private(set) var volumeStatuses: [URL: VolumeStatus] = [:]
 
     var maxVolumeSizeGB: Int = 2000 {
         didSet { UserDefaults.standard.set(maxVolumeSizeGB, forKey: "maxVolumeSizeGB") }
@@ -30,7 +31,15 @@ final class AppState {
 
     // MARK: - Public actions
 
+    func refreshStatuses() async {
+        for volume in mountedVolumes {
+            let dirty = await VolumeCleaner.shared.hasJunk(volume: volume)
+            volumeStatuses[volume.id] = dirty ? .dirty : .clean
+        }
+    }
+
     func clean(volume: VolumeInfo, ejectAfter: Bool = false) async {
+        volumeStatuses[volume.id] = .unknown
         let result = await VolumeCleaner.shared.clean(volume: volume, recursive: volume.isRemovable)
         addCleanEvent(CleanEvent(
             date: Date(),

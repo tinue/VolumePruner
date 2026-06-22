@@ -1,5 +1,9 @@
 import Foundation
 
+enum VolumeStatus: Sendable {
+    case unknown, clean, dirty
+}
+
 struct CleanResult: Sendable {
     let filesRemoved: Int
     let bytesReclaimed: Int64

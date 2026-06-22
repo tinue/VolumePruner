@@ -67,6 +67,19 @@ actor VolumeCleaner {
         return CleanResult(filesRemoved: filesRemoved, bytesReclaimed: bytesReclaimed, errors: errors)
     }
 
+    func hasJunk(volume: VolumeInfo) async -> Bool {
+        let fm = FileManager.default
+        let contents = (try? fm.contentsOfDirectory(
+            at: volume.id,
+            includingPropertiesForKeys: nil,
+            options: []
+        )) ?? []
+        return contents.contains { url in
+            let name = url.lastPathComponent
+            return exactNames.contains(name) || name.hasPrefix("._")
+        }
+    }
+
     private nonisolated func fileSize(at url: URL) -> Int64 {
         guard let vals = try? url.resourceValues(forKeys: [URLResourceKey.fileSizeKey]),
               let size = vals.fileSize else { return 0 }

@@ -33,5 +33,12 @@ struct MenuBarView: View {
             .padding(.vertical, 8)
         }
         .frame(width: 320)
+        .task {
+            await appState.refreshStatuses()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                await appState.refreshStatuses()
+            }
+        }
     }
 }
