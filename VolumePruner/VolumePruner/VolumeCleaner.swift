@@ -18,6 +18,9 @@ actor VolumeCleaner {
 
         log.info("Starting clean on '\(volume.name, privacy: .public)' (fs=\(volume.fsTypeName, privacy: .public) recursive=\(recursive))")
         disableSpotlight(on: volume.id.path)
+        // mds processes -i off asynchronously; give it time to finish any
+        // active writes before we attempt to remove .Spotlight-V100.
+        try? await Task.sleep(for: .milliseconds(500))
 
         if recursive {
             guard let enumerator = fm.enumerator(
@@ -101,13 +104,11 @@ actor VolumeCleaner {
         }
     }
 
-    // Disable Spotlight and erase its index so mds releases .Spotlight-V100.
-    // -i off turns indexing off for the volume; -E erases the existing index
-    // store (which removes .Spotlight-V100). Neither requires root on
-    // removable non-system volumes.
+    // Tell Spotlight to stop indexing this volume. mds processes this
+    // asynchronously, so the caller must wait briefly before attempting
+    // to remove .Spotlight-V100.
     private nonisolated func disableSpotlight(on path: String) {
-        runMdutil(["-i", "off", path])  // turn indexing off so -E won't re-create
-        runMdutil(["-E", path])          // erase the index (removes .Spotlight-V100)
+        runMdutil(["-i", "off", path])
     }
 
     private nonisolated func runMdutil(_ args: [String]) {
