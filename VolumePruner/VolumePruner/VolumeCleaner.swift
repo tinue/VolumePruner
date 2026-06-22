@@ -1,7 +1,9 @@
 import Foundation
+import OSLog
 
 actor VolumeCleaner {
     static let shared = VolumeCleaner()
+    nonisolated private let log = Logger(subsystem: "ch.erzberger.VolumePruner", category: "VolumeCleaner")
 
     private let exactNames: Set<String> = [
         ".DS_Store", ".Spotlight-V100", ".Trashes", ".fseventsd",
@@ -14,12 +16,15 @@ actor VolumeCleaner {
         var errors: [String] = []
         let fm = FileManager.default
 
+        log.info("Starting clean on '\(volume.name, privacy: .public)' (fs=\(volume.fsTypeName, privacy: .public) recursive=\(recursive))")
+
         if recursive {
             guard let enumerator = fm.enumerator(
                 at: volume.id,
                 includingPropertiesForKeys: [URLResourceKey.fileSizeKey, URLResourceKey.isDirectoryKey],
                 options: [.skipsPackageDescendants]
             ) else {
+                log.error("Cannot enumerate '\(volume.name, privacy: .public)'")
                 return CleanResult(filesRemoved: 0, bytesReclaimed: 0, errors: ["Cannot enumerate volume"])
             }
 
@@ -36,18 +41,25 @@ actor VolumeCleaner {
                 let size = fileSize(at: url)
                 do {
                     try fm.removeItem(at: url)
+                    log.debug("Removed \(url.lastPathComponent, privacy: .public)")
                     filesRemoved += 1
                     bytesReclaimed += size
                 } catch {
+                    logDeleteFailure(url: url, error: error)
                     errors.append(url.lastPathComponent + ": " + error.localizedDescription)
                 }
             }
         } else {
-            let contents = (try? fm.contentsOfDirectory(
-                at: volume.id,
-                includingPropertiesForKeys: [URLResourceKey.fileSizeKey],
-                options: []
-            )) ?? []
+            let contents: [URL]
+            do {
+                contents = try fm.contentsOfDirectory(
+                    at: volume.id,
+                    includingPropertiesForKeys: [URLResourceKey.fileSizeKey],
+                    options: [])
+            } catch {
+                log.error("Cannot list root of '\(volume.name, privacy: .public)': \(error.localizedDescription, privacy: .public)")
+                return CleanResult(filesRemoved: 0, bytesReclaimed: 0, errors: [error.localizedDescription])
+            }
 
             for url in contents {
                 let name = url.lastPathComponent
@@ -56,12 +68,20 @@ actor VolumeCleaner {
                 let size = fileSize(at: url)
                 do {
                     try fm.removeItem(at: url)
+                    log.debug("Removed \(url.lastPathComponent, privacy: .public)")
                     filesRemoved += 1
                     bytesReclaimed += size
                 } catch {
+                    logDeleteFailure(url: url, error: error)
                     errors.append(url.lastPathComponent + ": " + error.localizedDescription)
                 }
             }
+        }
+
+        if errors.isEmpty {
+            log.info("Clean complete: \(filesRemoved) file(s) removed, \(bytesReclaimed) bytes reclaimed")
+        } else {
+            log.warning("Clean finished with \(errors.count) failure(s): \(filesRemoved) removed, \(errors.joined(separator: "; "), privacy: .public)")
         }
 
         return CleanResult(filesRemoved: filesRemoved, bytesReclaimed: bytesReclaimed, errors: errors)
@@ -78,6 +98,13 @@ actor VolumeCleaner {
             let name = url.lastPathComponent
             return exactNames.contains(name) || name.hasPrefix("._")
         }
+    }
+
+    private nonisolated func logDeleteFailure(url: URL, error: any Error) {
+        let posix = (error as? CocoaError)?.code.rawValue
+            ?? (error as NSError).code
+        let domain = (error as NSError).domain
+        log.error("Failed to delete '\(url.lastPathComponent, privacy: .public)' — \(error.localizedDescription, privacy: .public) (domain=\(domain, privacy: .public) code=\(posix))")
     }
 
     private nonisolated func fileSize(at url: URL) -> Int64 {
