@@ -16,8 +16,10 @@ final class AppState {
         didSet { UserDefaults.standard.set(maxVolumeSizeGB, forKey: "maxVolumeSizeGB") }
     }
 
-    var watchedPaths: Set<URL> = [] {
-        didSet { saveWatchedPaths() }
+    // Keyed by VolumeInfo.watchKey (UUID-based), value is the display name
+    // persisted so the user sees a meaningful label for unmounted volumes.
+    var watchedVolumes: [String: String] = [:] {
+        didSet { saveWatchedVolumes() }
     }
 
     private var watchers: [URL: VolumeWatcher] = [:]
@@ -52,7 +54,7 @@ final class AppState {
             needsFullDiskAccess = false
         } catch {
             let code = (error as NSError).code
-            needsFullDiskAccess = (code == NSFileReadNoPermissionError || code == 1) // 1 = EPERM
+            needsFullDiskAccess = (code == NSFileReadNoPermissionError || code == 1)
         }
     }
 
@@ -89,9 +91,9 @@ final class AppState {
     func toggleWatch(volume: VolumeInfo) {
         if watchers[volume.id] != nil {
             stopWatching(volume)
-            watchedPaths.remove(volume.id)
+            watchedVolumes.removeValue(forKey: volume.watchKey)
         } else {
-            watchedPaths.insert(volume.id)
+            watchedVolumes[volume.watchKey] = volume.name
             startWatching(volume)
         }
     }
@@ -100,11 +102,11 @@ final class AppState {
         watchers[volume.id] != nil
     }
 
-    func removeWatchedPath(_ url: URL) {
-        if let volume = mountedVolumes.first(where: { $0.id == url }) {
+    func removeWatchedVolume(key: String) {
+        if let volume = mountedVolumes.first(where: { $0.watchKey == key }) {
             stopWatching(volume)
         }
-        watchedPaths.remove(url)
+        watchedVolumes.removeValue(forKey: key)
     }
 
     // MARK: - Private
@@ -138,7 +140,7 @@ final class AppState {
                       SafetyGuard.isEligible(volume: info, maxGB: self.maxVolumeSizeGB)
                 else { return }
                 self.mountedVolumes.append(info)
-                if self.watchedPaths.contains(url) {
+                if self.watchedVolumes[info.watchKey] != nil {
                     self.startWatching(info)
                 }
             }
@@ -175,7 +177,7 @@ final class AppState {
 
         log.debug("After filtering: \(self.mountedVolumes.count) eligible volume(s)")
 
-        for volume in mountedVolumes where watchedPaths.contains(volume.id) && watchers[volume.id] == nil {
+        for volume in mountedVolumes where watchedVolumes[volume.watchKey] != nil && watchers[volume.id] == nil {
             startWatching(volume)
         }
     }
@@ -189,16 +191,15 @@ final class AppState {
         if let gb = UserDefaults.standard.object(forKey: "maxVolumeSizeGB") as? Int {
             maxVolumeSizeGB = gb
         }
-        if let data = UserDefaults.standard.data(forKey: "watchedPaths"),
-           let paths = try? JSONDecoder().decode([String].self, from: data) {
-            watchedPaths = Set(paths.compactMap { URL(string: $0) })
+        if let data = UserDefaults.standard.data(forKey: "watchedVolumes"),
+           let dict = try? JSONDecoder().decode([String: String].self, from: data) {
+            watchedVolumes = dict
         }
     }
 
-    private func saveWatchedPaths() {
-        let paths = watchedPaths.map(\.absoluteString)
-        if let data = try? JSONEncoder().encode(paths) {
-            UserDefaults.standard.set(data, forKey: "watchedPaths")
+    private func saveWatchedVolumes() {
+        if let data = try? JSONEncoder().encode(watchedVolumes) {
+            UserDefaults.standard.set(data, forKey: "watchedVolumes")
         }
     }
 }

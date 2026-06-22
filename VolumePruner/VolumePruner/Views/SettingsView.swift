@@ -38,24 +38,27 @@ struct SettingsView: View {
             }
 
             Section("Watched Volumes") {
-                let paths = Array(appState.watchedPaths).sorted { $0.path < $1.path }
-                if paths.isEmpty {
+                let entries = appState.watchedVolumes.sorted { $0.value < $1.value }
+                if entries.isEmpty {
                     Text("No volumes being watched")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(paths, id: \.self) { url in
+                    ForEach(entries, id: \.key) { key, name in
+                        let mounted = appState.mountedVolumes.contains { $0.watchKey == key }
                         HStack {
                             Image(systemName: "eye.fill")
-                                .foregroundStyle(.secondary)
-                            Text(url.lastPathComponent)
-                            Text(url.path)
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                .truncationMode(.middle)
-                                .lineLimit(1)
+                                .foregroundStyle(mounted ? Color.accentColor : .secondary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(name)
+                                if !mounted {
+                                    Text("Not mounted")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
                             Spacer()
                             Button("Remove", role: .destructive) {
-                                appState.removeWatchedPath(url)
+                                appState.removeWatchedVolume(key: key)
                             }
                             .buttonStyle(.borderless)
                             .foregroundStyle(.red)
