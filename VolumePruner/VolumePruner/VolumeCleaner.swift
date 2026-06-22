@@ -66,14 +66,46 @@ actor VolumeCleaner {
 
     // nonisolated so concurrent calls for different volumes don't serialize
     // through the actor. Blocking I/O runs on a DispatchQueue thread so the
-    // cooperative pool is never stalled by a slow or unresponsive CIFS share.
+    // cooperative pool is never stalled by a slow or unresponsive share.
+    //
+    // Network volumes (smbfs/cifs) use a root-only listing: recursive SMB
+    // enumeration requires one round-trip per directory and hangs indefinitely
+    // on large or unresponsive shares. The primary junk files (.Spotlight-V100,
+    // .Trashes, .fseventsd) always live at the volume root, so this still gives
+    // a meaningful status. clean() always recurses fully regardless of type.
     nonisolated func hasJunk(volume: VolumeInfo) async -> Bool {
         let log = self.log
         let exactNames = self.exactNames
+        let isNetwork = volume.fsTypeName == "smbfs" || volume.fsTypeName == "cifs"
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 let start = ContinuousClock.now
-                guard let enumerator = FileManager.default.enumerator(
+                let fm = FileManager.default
+
+                if isNetwork {
+                    // Root-only: one listing call, no recursive traversal.
+                    let entries = (try? fm.contentsOfDirectory(
+                        at: volume.id,
+                        includingPropertiesForKeys: nil,
+                        options: []
+                    )) ?? []
+                    let found = entries.first { url in
+                        let name = url.lastPathComponent
+                        return exactNames.contains(name) || name.hasPrefix("._")
+                    }
+                    let elapsed = start.duration(to: .now)
+                    if let match = found {
+                        log.debug("hasJunk '\(volume.name, privacy: .public)': dirty (root-only) — found '\(match.lastPathComponent, privacy: .public)' in \(elapsed, privacy: .public)")
+                        continuation.resume(returning: true)
+                    } else {
+                        log.debug("hasJunk '\(volume.name, privacy: .public)': clean (root-only) — \(entries.count) entries in \(elapsed, privacy: .public)")
+                        continuation.resume(returning: false)
+                    }
+                    return
+                }
+
+                // Local volumes: full recursive walk with early exit.
+                guard let enumerator = fm.enumerator(
                     at: volume.id,
                     includingPropertiesForKeys: nil,
                     options: [.skipsPackageDescendants]
